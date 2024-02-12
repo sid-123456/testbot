@@ -1,138 +1,259 @@
-import json,os
-from telegram.ext import Updater, MessageHandler
-from telegram.error import ChatMigrated
-from telegram.ext.filters import Filters
+import logging,os,random, re
+from telegram import Update
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+from typing import List
 
-# 填入您的Telegram Bot Token
 TOKEN = ""
+owner = []
+# 檔案名稱
+Bur_users = 'Bur_users.txt'
+authorized_users = 'authorized_users.txt'
+replies = 'replies.txt'
+log_file_path = 'testbot.log'
 
-# 主人的user ID
-MASTER_ID = ""
+if not os.path.isfile(log_file_path):
+    with open(log_file_path, 'w') as f:
+        print(f'日誌文件 {log_file_path} 已創建。')
+else:
+    print(f'日誌文件 {log_file_path} 已存在。')
+if not os.path.isfile(replies):
+    with open(replies, 'w', encoding='utf-8') as f:
+        print(f'回覆文件 {replies} 已創建。')
+else:
+    print(f'回覆文件 {replies} 已存在。')
+if not os.path.isfile(authorized_users):
+    with open(authorized_users, 'w', encoding='utf-8') as f:
+        print(f'人員文件 {authorized_users} 已創建。')
+else:
+    print(f'人員文件 {authorized_users} 已存在。')
+if not os.path.isfile(Bur_users):
+    with open(Bur_users, 'w', encoding='utf-8') as f:
+        print(f'人員文件 {Bur_users} 已創建。')
+else:
+    print(f'人員文件 {Bur_users} 已存在。')
 
-# 定義白名單用戶，避免誤封合法用戶
-#whitelisted_users = []
+# 啟用日誌記錄
+logging.basicConfig(
+    filename='testbot.log',  # 日誌文件名稱
+    filemode='a',  # 文件模式設為寫入模式
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',  # 日誌格式
+    level=logging.INFO , # 日誌級別設為INFO
+    encoding='utf-8'
+)
 
-# 接收訊息群組的 Chat ID
-WHITE_LIST_GROUP_ID = ""
+def is_authorized(user_id: int) -> bool:
+    """檢查用戶是否有權限"""
+    return user_id in load_authorized_users() and user_id != owner
+def is_bur(user_id: int) -> bool:
+    """檢查用戶是否有權限"""
+    return user_id in load_Bur_users() 
 
-# 讀取 while_user.json 文件
-with open(os.path.join("while_user.json"), 'r') as json_file:
-    while_user_data = json.load(json_file)
-# 讀取 while_group.json 文件
-with open(os.path.join("while_group.json"), 'r') as json_file:
-    while_group_data = json.load(json_file)
+def start(update: Update, context: CallbackContext) -> None:
+    update.message.reply_text('現在可以開始聊天拉')
 
-# 白名單用戶的 User ID 列表
-WHITE_LIST_USERS = while_user_data.get('whiteListUsers', [])
-# 白名單用戶的 Group ID 列表
-WHITE_LIST_GROUPS = while_group_data.get('whiteListGroups', [])
-
-def check_user(user_id):
-    return user_id in WHITE_LIST_USERS
-def check_group(group_id):
-    return group_id in WHITE_LIST_GROUPS
-
-def start(update, context):
-    user_id = update.message.from_user.id
-    username = update.message.from_user.username
-    send_time = update.message.date
-    chat_id = update.message.chat_id
-    message_text = update.message.text
-    message_id = update.message.message_id
-
-    # 確認是否有回覆某則訊息
-    replied_user_id = update.message.reply_to_message.from_user.id if update.message.reply_to_message else None
-    replied_message_id = update.message.reply_to_message.message_id if update.message.reply_to_message else None
-
-    # 獲取群組中使用者的權限
-    user_permissions = context.bot.get_chat_member(chat_id, user_id).status
-
-    # 判斷是否在接收訊息群組
-    if chat_id != WHITE_LIST_GROUP_ID:
-        # 將 start 函數的輸出發送到接收訊息群組
-        try:
-            print("New message!")
-            context.bot.send_message(WHITE_LIST_GROUP_ID, f"{username}{user_id} has send message in {update.effective_chat.username} \n"
-                                                        f"Time: {send_time}User Permissions: {user_permissions}\n"
-                                                        f"{message_text}")
-        except ChatMigrated as e:
-            new_chat_id = e.new_chat_id
-            print(f"Group migrated to supergroup. New chat id: {new_chat_id}")
-            WHITE_LIST_GROUP_ID = new_chat_id
-            context.bot.send_message(WHITE_LIST_GROUP_ID, f"{username}{user_id} has send message in {update.effective_chat.username} \n"
-                                                        f"Time: {send_time}User Permissions: {user_permissions}\n"
-                                                        f"{message_text}")
-    # 在這裡可以加上判斷條件，看要回覆什麼內容
-    elif message_text.startswith('/delete'):
-        delete_command(update, context,user_id,message_id,replied_message_id)
-    elif message_text.startswith('/ban'):
-        ban_command(update, context,user_id,message_id,replied_message_id,replied_user_id)
-
-def delete_command(update, context, uid, mid, rmid):
-    chat_id = update.effective_chat.id
-    user_id = uid
-    message_id = mid
-    replied_message_id = rmid
-    # 判斷訊息是否以 '#delete' 開頭
-    if check_group(chat_id):
-        print("bot check authorized group")
-        if check_user(user_id):
-            print("bot check authorized user")
-            # 如果有回覆的訊息，刪除它
-            if (replied_message_id != None):
-                try:
-                    print("bot trying delete message")
-                    context.bot.delete_message(chat_id=chat_id, message_id=replied_message_id)
-                except:
-                    update.message.reply_text(chat_id=chat_id, text="機器人刪除訊息時遇到一些錯誤", reply_to_message_id=message_id)
-            else:        
-                # 發送訊息
-                update.message.reply_text(chat_id=chat_id, text="請回覆要處理的訊息", reply_to_message_id=message_id)
-        else:
-            # 發送訊息
-            update.message.reply_text(chat_id=chat_id, text="僅限於授權人員使用", reply_to_message_id=message_id)
+def userid(update: Update, context: CallbackContext) -> None:
+    # 檢查是否有回覆的訊息
+    if update.message.reply_to_message:
+        update.message.reply_text(f"userid : {update.message.reply_to_message.from_user.id}")
     else:
-        update.message.reply_text(chat_id=chat_id, text="僅限於授權群組使用", reply_to_message_id=message_id)
+        update.message.reply_text(f"userid : {update.message.from_user.id}")
 
-def ban_command(update, context, uid, mid, rmid, ruid):
-    chat_id = update.effective_chat.id
-    user_id = uid
-    message_id = mid
-    replied_message_id = rmid
-    replied_user_id = ruid
-    # 判斷訊息是否以 '#ban' 開頭
-    if check_group(chat_id):
-        print("bot check authorized group")
-        if check_user(user_id):
-            print("bot check authorized user")
-            # 如果有回覆的訊息封鎖被回覆者
-            if (replied_message_id != None):
-                try:
-                    print("bot trying ban user")
-                    context.bot.kickChatMember(chat_id=chat_id, user_id=replied_user_id)               
-                    context.bot.delete_message(chat_id=chat_id, message_id=replied_message_id)
-                except Exception as e:
-                    update.message.reply_text(chat_id=chat_id, text="機器人封鎖時遇到一些錯誤" + str(e), reply_to_message_id=message_id)
-            else:        
-                # 發送訊息
-                update.message.reply_text(chat_id=chat_id, text="請回覆要處理的訊息", reply_to_message_id=message_id)
+def delete(update: Update, context: CallbackContext) -> None:
+    # 檢查是否有回覆的訊息
+    if update.message.reply_to_message:
+        # 檢查用戶是否在授權人員列表中
+        if is_authorized(update.message.from_user.id):
+            # 嘗試刪除訊息
+            try:
+                update.message.reply_to_message.delete()
+                bot_mesg = update.message.reply_text('訊息已刪除。')
+                update.message.delete()
+                # 刪除訊息
+                context.bot.delete_message(chat_id=update.effective_chat.id, message_id=bot_mesg.message_id)
+                logging.info("successful delete message!")
+            except:
+                update.message.reply_text('無法刪除訊息。')
+                logging.info("Error delete!")
         else:
-            # 發送訊息
-            update.message.reply_text(chat_id=chat_id, text="僅限於授權人員使用", reply_to_message_id=message_id)
+            update.message.reply_text('你不是授權人員，Your action will be log。')
+            logging.info(f"Not authorized member action."
+                         f"Name:{update.message.from_user.name} ID:{update.message.from_user.id}")
     else:
-        update.message.reply_text(chat_id=chat_id, text="僅限於授權群組使用", reply_to_message_id=message_id)
-            
-def main():
+        update.message.reply_text('請回覆一條訊息以刪除它。')
+
+def ban(update: Update, context: CallbackContext) -> None:
+    # 檢查是否有回覆的訊息
+    if update.message.reply_to_message:
+        # 檢查用戶是否在授權人員列表中
+        if is_authorized(update.message.from_user.id):
+            # 嘗試封鎖訊息
+            try:
+                update.message.chat.kick_member(update.message.reply_to_message.from_user.id)
+                update.message.reply_text('用戶已封鎖。')
+                logging.info("successful Ban user!")
+            except:
+                update.message.reply_text('封鎖失敗。')
+                logging.info("Error Ban!")
+        else:
+            update.message.reply_text('你沒有權限封鎖用戶，Your action will be log。')
+            logging.info(f"Not authorized member action."
+                         f"Name:{update.message.from_user.name} ID:{update.message.from_user.id}")
+    else:
+        update.message.reply_text('請回覆一條訊息以刪除它。')
+
+def echo(update: Update, context: CallbackContext) -> None:
+    update.message.reply_text(update.message.text)
+
+def anyone(update: Update, context: CallbackContext) -> None:
+    update.message.reply_to_message.reply_text("沒有人你悲劇了！")
+    update.message.delete()
+    logging.info(f"not anyone! ")
+
+def save_and_reply(update: Update, context: CallbackContext) -> None:
+    if update.message and update.message.reply_to_message and update.message.reply_to_message.from_user.is_bot:
+        message = update.message.text
+        # 將 '@' 替換為 ' @ '
+        message = message.replace('@', ' @ ')
+        # 檢查訊息是否包含 "@"
+        if "@" not in message:
+            if not update.message.text.startswith('/'):
+                # 使用正則表達式匹配中英文字符和標點符號
+                words = re.findall(r"[（【《{]|\b\w+\b|[\u4e00-\u9FFF]|[，。！？、；：‘’“”）】》}]", message)
+            # 隨機重排單詞
+            random.shuffle(words)
+            # 重新組合成句子
+            new_message = ''.join(words)  # 不使用空格來連接單詞
+             # 將新的句子寫入文件
+            with open('replies.txt', 'a', encoding='utf-8') as f:
+               f.write(new_message + '\n')
+            # 讀取所有訊息
+            with open('replies.txt', 'r', encoding='utf-8') as f:
+                messages = f.readlines()
+            # 隨機選擇一個訊息並發送
+            response = random.choice(messages).strip()
+            update.message.reply_text(response)
+            logging.info("replies message send successful")
+        else:
+            update.message.reply_text("我不接受包含@的訊息喔！")
+
+def load_messages() -> List[str]:
+    # 檢查文件是否存在
+    if os.path.isfile(replies):
+        # 讀取文件
+        with open(replies, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        # 刪除換行符號並只保留文本部分
+        messages = [line.strip() for line in lines]
+        # 如果有訊息，則隨機選擇一個回覆
+        if messages:
+            return messages
+    return []
+
+def senrg(update: Update, context: CallbackContext) -> None:
+    message = update.message.reply_to_message.text
+    if "@" not in message:
+        # 使用正則表達式匹配中英文字符和標點符號
+        words = re.findall(r"[（【《{]|\b\w+\b|[\u4e00-\u9FFF]|[，。！？、；：‘’“”）】》}]", message)
+        # 隨機重排單詞
+        random.shuffle(words)
+        # 重新組合成句子
+        new_message = ' '.join(words)  # 不使用空格來連接單詞
+        update.message.reply_text(new_message)
+        logging.info("snerg successful")
+
+def eras(update: Update, context: CallbackContext) -> None:
+    if update.message and update.message.reply_to_message:
+        if not update.message.reply_to_message.from_user.is_bot:
+            # 獲取要刪除的訊息
+            message_to_delete = update.message.reply_to_message.text
+            # 讀取所有行
+            with open(replies, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            # 找到要刪除的訊息並刪除
+            lines = [line for line in lines if message_to_delete not in line]
+            # 寫回文件
+            with open(replies, 'w', encoding='utf-8') as f:
+                f.writelines(lines)
+            update.message.reply_text('訊息已刪除。')
+            logging.info(f"replies message successful delete")
+        else:
+            update.message.reply_text('請不要回覆bot的訊息。')
+    else:
+        update.message.reply_text('請提供要刪除的訊息。')
+
+def load_authorized_users():
+    authorized_users_list = []
+    with open(authorized_users, 'r') as f:
+            for line in f:
+                try:
+                    authorized_users_list.append(int(line.strip()))
+                except ValueError:
+                    print(f"無法將 {line.strip()} 轉換為整數，已跳過。")
+    return authorized_users_list
+
+def add_authorized_user(user_id):
+    with open(authorized_users, 'a') as f:
+        f.write(f"{user_id}\n")
+
+def set_AU(update: Update, context: CallbackContext) -> None:
+    if is_bur(update.message.from_user.id):
+        if update.message.reply_to_message:
+            new_user_id = update.message.reply_to_message.from_user.id
+            add_authorized_user(new_user_id)
+            update.message.reply_text(f"已添加用戶 {new_user_id} 到授權用戶列表。")
+            logging.info(f"New user {new_user_id} add in {authorized_users}")
+        else:
+            update.message.reply_text('請回覆一條訊息以獲取用戶 ID。')
+    else:
+        update.message.reply_text('你沒有高級管理員權限，Your action will be log。')
+        logging.info(f"Not authorized member action."
+                    f"Name:{update.message.from_user.name} ID:{update.message.from_user.id}")
+
+def load_Bur_users():
+    Bur_users_list = []
+    with open(Bur_users, 'r') as f:
+            for line in f:
+                try:
+                    Bur_users_list.append(int(line.strip()))
+                except ValueError:
+                    print(f"無法將 {line.strip()} 轉換為整數，已跳過。")
+    return Bur_users_list
+
+def add_Bur_user(user_id):
+    with open(Bur_users, 'a') as f:
+        f.write(f"{user_id}\n")
+
+def set_BU(update: Update, context: CallbackContext) -> None:
+    if is_bur(update.message.from_user.id):
+        if update.message.reply_to_message:
+            new_user_id = update.message.reply_to_message.from_user.id
+            add_Bur_user(new_user_id)
+            update.message.reply_text(f"已添加用戶 {new_user_id} 到高級管理員用戶列表。")
+            logging.info(f"New user {new_user_id} add in {Bur_users}")
+        else:
+            update.message.reply_text('請回覆一條訊息以獲取用戶 ID。')
+    else:
+        update.message.reply_text('你沒有高級管理員權限，Your action will be log。')
+        logging.info(f"Not authorized member action."
+                    f"Name:{update.message.from_user.name} ID:{update.message.from_user.id}")
+
+def main() -> None:
     updater = Updater(token=TOKEN, use_context=True)
     dp = updater.dispatcher
 
-    # 當接收到文字訊息時，執行 start 函數
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, start))
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("anyone", anyone))
+    dp.add_handler(CommandHandler("delete", delete))
+    dp.add_handler(CommandHandler("ban", ban))
+    #dp.add_handler(MessageHandler(Filters.text & ~Filters.command, echo))
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, save_and_reply))
+    #dp.add_handler(CommandHandler("eras", eras))
+    dp.add_handler(CommandHandler("senrg", senrg))
+    dp.add_handler(CommandHandler("userid", userid))
+    dp.add_handler(CommandHandler("set_AU", set_AU))
+    dp.add_handler(CommandHandler("set_BU", set_BU))
 
-    # 開始運行機器人
     updater.start_polling()
-    print("Bot has been successfully started!")
-    # 阻塞直到程式被中斷
     updater.idle()
 
 if __name__ == '__main__':
